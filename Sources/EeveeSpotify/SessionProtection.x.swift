@@ -84,8 +84,9 @@ class SPTAuthSessionHook: ClassHook<NSObject> {
 
     func productStateUpdated(_ state: AnyObject) {
         let elapsed = Int(Date().timeIntervalSince(tweakInitTime))
+        writeDebugLog("[AUTH] SPTAuthSessionHook.productStateUpdated called at \(elapsed)s")
         let (coerced, didCoerce) = eeveePremiumCoercedProductStateIfNeeded(for: state)
-        writeDebugLog("[AUTH] productStateUpdated at \(elapsed)s didCoerce=\(didCoerce)")
+        writeDebugLog("[AUTH] SPTAuthSessionHook.productStateUpdated at \(elapsed)s didCoerce=\(didCoerce)")
         orig.productStateUpdated(coerced)
     }
 
@@ -436,8 +437,9 @@ class SPTAuthSessionPremiumProductOnlyHook: ClassHook<NSObject> {
 
     func productStateUpdated(_ state: AnyObject) {
         let elapsed = Int(Date().timeIntervalSince(tweakInitTime))
+        writeDebugLog("[AUTH] SPTAuthSessionPremiumProductOnlyHook.productStateUpdated called at \(elapsed)s")
         let (coerced, didCoerce) = eeveePremiumCoercedProductStateIfNeeded(for: state)
-        writeDebugLog("[AUTH] productStateUpdated at \(elapsed)s didCoerce=\(didCoerce)")
+        writeDebugLog("[AUTH] SPTAuthSessionPremiumProductOnlyHook.productStateUpdated at \(elapsed)s didCoerce=\(didCoerce)")
         orig.productStateUpdated(coerced)
     }
 }

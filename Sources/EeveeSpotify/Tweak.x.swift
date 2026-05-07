@@ -325,20 +325,25 @@ struct EeveeSpotify: Tweak {
 
         // For 9.1.x, activate premium patching and lyrics
         if EeveeSpotify.hookTarget == .v91 {
+            writeDebugLog("[INIT] Starting v9.1.x specific initialization")
             
             // Premium patching (9.1.x)
             // Always activate the *bootstrap interceptor*; it is required for premium patching.
             if UserDefaults.patchType.isPatching {
+                writeDebugLog("[INIT] patchType.isPatching=true, activating PremiumBootstrapGroup")
                 PremiumBootstrapGroup().activate()
                 writeDebugLog("[INIT] Activated PremiumBootstrapGroup")
 
                 // Optional UI hooks (safe-gated)
                 if let hub = NSClassFromString("HUBViewModelBuilderImplementation"),
                    class_getInstanceMethod(hub, Selector(("addJSONDictionary:"))) != nil {
+                    writeDebugLog("[INIT] HUBViewModelBuilderImplementation found, activating PremiumUIHooksGroup")
                     PremiumUIHooksGroup().activate()
                 } else {
                     writeDebugLog("[INIT] Skipped PremiumUIHooksGroup (missing HUBViewModelBuilderImplementation/addJSONDictionary:)")
                 }
+            } else {
+                writeDebugLog("[INIT] patchType.isPatching=false, skipping premium patching")
             }
             
             let lyricsEnabled = UserDefaults.lyricsSource.isReplacingLyrics

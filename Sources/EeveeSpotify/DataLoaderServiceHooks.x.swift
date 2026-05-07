@@ -22,10 +22,14 @@ class SPTDataLoaderServiceHook: ClassHook<NSObject>, SpotifySessionDelegate {
     // orion:new
     func shouldBlock(_ url: URL) -> Bool {
         let elapsed = Date().timeIntervalSince(tweakInitTime)
+        let elapsedInt = Int(elapsed)
         let path = url.path.lowercased()
+        
+        writeDebugLog("[DL] shouldBlock checking \(url.absoluteString) at \(elapsedInt)s")
         
         // Always block explicit session destroy/token delete or ad-related requests
         if url.isDeleteToken || url.isSessionInvalidation || path.contains("session/purge") || path.contains("token/revoke") || url.isAdRelated {
+            writeDebugLog("[DL] Blocking \(url.absoluteString) - session destroy/ad related")
             return true
         }
         
@@ -34,17 +38,19 @@ class SPTDataLoaderServiceHook: ClassHook<NSObject>, SpotifySessionDelegate {
         // (e.g. Cartier on Search, Ross on Home shown in the screenshots).
         // Any /dac/view/v1/ request is ad-related; return empty to suppress.
         if path.contains("/dac/view/v1/") {
+            writeDebugLog("[DL] Blocking \(url.absoluteString) - DAC ad request")
             return true
         }
 
         // Block the Esperanto ad slot service used for in-stream and overlay ads
         if path.contains("/esperanto/") && (path.contains("ad") || path.contains("slot")) {
+            writeDebugLog("[DL] Blocking \(url.absoluteString) - Esperanto ad slot")
             return true
         }
 
         // Only block these after startup (30s) to allow initial login/initialization
         if elapsed > 30 {
-            return url.isAccountValidate || url.isOndemandSelector
+            let shouldBlock = url.isAccountValidate || url.isOndemandSelector
                 || url.isTrialsFacade || url.isPremiumMarketing || url.isPendragonFetchMessageList
                 || url.isPushkaTokens || url.path.contains("signup/public") || url.path.contains("apresolve")
                 || url.path.contains("pses/screenconfig")
@@ -54,8 +60,14 @@ class SPTDataLoaderServiceHook: ClassHook<NSObject>, SpotifySessionDelegate {
                 // the app re-enables ad feature flags from the server response.
                 // We block re-fetches here; the cached modified data is served via the 304 path.
                 || url.path.contains("v1/customize")
+            
+            if shouldBlock {
+                writeDebugLog("[DL] Blocking \(url.absoluteString) - post-30s protection")
+                return true
+            }
         }
         
+        writeDebugLog("[DL] Allowing \(url.absoluteString) - no block conditions met")
         return false
     }
 
@@ -226,28 +238,19 @@ class SPTDataLoaderServiceHook: ClassHook<NSObject>, SpotifySessionDelegate {
             }
             
             if url.isBootstrap {
-                // Enhanced bootstrap patching for v9.1.34+ stability
+                // Patch bootstrap on the SPTDataLoaderService path too.
+                // Some builds / sessions do not hit SpotifySessionDelegateBootstrapHook reliably.
                 var bootstrapMessage = try BootstrapMessage(serializedBytes: buffer)
                 
-                // For v9.1.x, always patch to prevent free-tier reversion during session re-inits
-                if EeveeSpotify.hookTarget == .v91 {
-                    writeDebugLog("[BOOTSTRAP] (DL) Force patching bootstrap for v9.1.x stability")
-                    eeveeNoteBootstrapPremiumPatchApplied()
-                    modifyRemoteConfiguration(&bootstrapMessage.ucsResponse)
-                    
-                    // Set patchType if not already set
-                    if UserDefaults.patchType == .notSet {
-                        UserDefaults.patchType = .requests
-                    }
-                }
-                else if UserDefaults.patchType == .requests {
+                writeDebugLog("[BOOTSTRAP] (DL) Processing bootstrap, patchType=\(UserDefaults.patchType)")
+                
+                if UserDefaults.patchType == .requests {
                     writeDebugLog("[BOOTSTRAP] (DL) Patching bootstrap UCS response")
                     eeveeNoteBootstrapPremiumPatchApplied()
                     modifyRemoteConfiguration(&bootstrapMessage.ucsResponse)
                 } else {
                     writeDebugLog("[BOOTSTRAP] (DL) Passing through bootstrap (patchType=\(UserDefaults.patchType))")
                 }
-                
                 respondWithCustomData(try bootstrapMessage.serializedBytes(), task: task, session: session)
                 orig.URLSession(session, task: task, didCompleteWithError: nil)
                 return
