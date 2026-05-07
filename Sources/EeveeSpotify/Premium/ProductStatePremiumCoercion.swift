@@ -3,10 +3,34 @@ import Foundation
 /// When bootstrap/`v1/customize` are missed (e.g. second auth lifecycle on 9.1.34+), Spotify still pushes
 /// product state via `[SPTAuthSessionImplementation productStateUpdated:]`. Rewrite obvious free-tier maps.
 func eeveePremiumCoercedProductStateIfNeeded(for state: AnyObject) -> (AnyObject, Bool) {
-    guard UserDefaults.patchType.isPatching else { return (state, false) }
-    guard let dict = state as? NSDictionary else { return (state, false) }
-    guard eeveeProductStateAppearsFreeTier(dict) else { return (state, false) }
+    let elapsed = Int(Date().timeIntervalSince(tweakInitTime))
+    writeDebugLog("[AUTH] ProductState coercion check at \(elapsed)s, patchType=\(UserDefaults.patchType)")
+    
+    guard UserDefaults.patchType.isPatching else { 
+        writeDebugLog("[AUTH] Skipping coercion - patchType not enabled")
+        return (state, false) 
+    }
+    
+    guard let dict = state as? NSDictionary else { 
+        writeDebugLog("[AUTH] Skipping coercion - state is not NSDictionary")
+        return (state, false) 
+    }
+    
+    // Log key product state values for debugging
+    let type = eeveeNormKey(dict, "type")
+    let catalogue = eeveeNormKey(dict, "catalogue")
+    let fp = eeveeNormKey(dict, "financial-product")
+    let name = eeveeNormKey(dict, "name")
+    let ads = dict["ads"] as? Int ?? -1
+    
+    writeDebugLog("[AUTH] ProductState analysis - type:\(type), catalogue:\(catalogue), fp:\(fp), name:\(name), ads:\(ads)")
+    
+    guard eeveeProductStateAppearsFreeTier(dict) else { 
+        writeDebugLog("[AUTH] Skipping coercion - productState does not appear free-tier")
+        return (state, false) 
+    }
 
+    writeDebugLog("[AUTH] Free-tier detected, applying coercion")
     let mutable = NSMutableDictionary(dictionary: dict)
     eeveeApplyPremiumProductStateKeys(to: mutable)
     eeveeStripFreeTierLeakKeys(from: mutable)
