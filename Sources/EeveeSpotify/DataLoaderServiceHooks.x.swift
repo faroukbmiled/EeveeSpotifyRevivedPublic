@@ -226,16 +226,28 @@ class SPTDataLoaderServiceHook: ClassHook<NSObject>, SpotifySessionDelegate {
             }
             
             if url.isBootstrap {
-                // Patch bootstrap on the SPTDataLoaderService path too.
-                // Some builds / sessions do not hit SpotifySessionDelegateBootstrapHook reliably.
+                // Enhanced bootstrap patching for v9.1.34+ stability
                 var bootstrapMessage = try BootstrapMessage(serializedBytes: buffer)
-                if UserDefaults.patchType == .requests {
+                
+                // For v9.1.x, always patch to prevent free-tier reversion during session re-inits
+                if EeveeSpotify.hookTarget == .v91 {
+                    writeDebugLog("[BOOTSTRAP] (DL) Force patching bootstrap for v9.1.x stability")
+                    eeveeNoteBootstrapPremiumPatchApplied()
+                    modifyRemoteConfiguration(&bootstrapMessage.ucsResponse)
+                    
+                    // Set patchType if not already set
+                    if UserDefaults.patchType == .notSet {
+                        UserDefaults.patchType = .requests
+                    }
+                }
+                else if UserDefaults.patchType == .requests {
                     writeDebugLog("[BOOTSTRAP] (DL) Patching bootstrap UCS response")
                     eeveeNoteBootstrapPremiumPatchApplied()
                     modifyRemoteConfiguration(&bootstrapMessage.ucsResponse)
                 } else {
                     writeDebugLog("[BOOTSTRAP] (DL) Passing through bootstrap (patchType=\(UserDefaults.patchType))")
                 }
+                
                 respondWithCustomData(try bootstrapMessage.serializedBytes(), task: task, session: session)
                 orig.URLSession(session, task: task, didCompleteWithError: nil)
                 return
