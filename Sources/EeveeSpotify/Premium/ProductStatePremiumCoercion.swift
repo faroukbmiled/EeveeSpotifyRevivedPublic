@@ -23,7 +23,17 @@ private func eeveeProductStateAppearsFreeTier(_ dict: NSDictionary) -> Bool {
     let t = eeveeNormKey(dict, "type")
     let catalogue = eeveeNormKey(dict, "catalogue")
     let fp = eeveeNormKey(dict, "financial-product")
-    return t == "free" || catalogue == "free" || fp.contains("pr:free")
+    let name = eeveeNormKey(dict, "name")
+    let license = eeveeNormKey(dict, "player-license")
+    let licenseV2 = eeveeNormKey(dict, "player-license-v2")
+    
+    // Enhanced detection for v9.1.34+ - catch more free-tier indicators
+    let isFreeType = t == "free" || catalogue == "free" || fp.contains("pr:free")
+    let isFreeName = name.contains("free") || name.contains("ad-supported")
+    let isFreeLicense = license.contains("free") || licenseV2.contains("free")
+    let hasAds = dict["ads"] as? Int == 1
+    
+    return isFreeType || isFreeName || isFreeLicense || hasAds
 }
 
 private func eeveeApplyPremiumProductStateKeys(to m: NSMutableDictionary) {

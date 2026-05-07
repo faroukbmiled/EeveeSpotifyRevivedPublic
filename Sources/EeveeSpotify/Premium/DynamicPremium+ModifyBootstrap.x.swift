@@ -68,7 +68,26 @@ class SpotifySessionDelegateBootstrapHook: ClassHook<NSObject>, SpotifySessionDe
             do {
                 var bootstrapMessage = try BootstrapMessage(serializedBytes: buffer)
                 
-                if UserDefaults.patchType == .notSet {
+                // Enhanced v9.1.x handling - force premium patching to prevent reversion
+                if EeveeSpotify.hookTarget == .v91 {
+                    // For v9.1.x, always patch bootstrap to prevent free-tier reversion
+                    writeDebugLog("[BOOTSTRAP] Force patching bootstrap for v9.1.x stability")
+                    eeveeNoteBootstrapPremiumPatchApplied()
+                    modifyRemoteConfiguration(&bootstrapMessage.ucsResponse)
+                    
+                    // Set patchType if not already set
+                    if UserDefaults.patchType == .notSet {
+                        UserDefaults.patchType = .requests
+                        DispatchQueue.main.async { activatePremiumPatchingGroup() }
+                    }
+                    
+                    orig.URLSession(
+                        session,
+                        dataTask: task,
+                        didReceiveData: try bootstrapMessage.serializedBytes()
+                    )
+                }
+                else if UserDefaults.patchType == .notSet {
                     if bootstrapMessage.attributes["type"]?.stringValue == "premium" {
                         UserDefaults.patchType = .disabled
                         showHavePremiumPopUp()
@@ -82,8 +101,7 @@ class SpotifySessionDelegateBootstrapHook: ClassHook<NSObject>, SpotifySessionDe
                     }
                     
                 }
-                
-                if UserDefaults.patchType == .requests {
+                else if UserDefaults.patchType == .requests {
                     writeDebugLog("[BOOTSTRAP] Patching bootstrap UCS response")
                     eeveeNoteBootstrapPremiumPatchApplied()
                     modifyRemoteConfiguration(&bootstrapMessage.ucsResponse)
