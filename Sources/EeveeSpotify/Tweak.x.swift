@@ -51,13 +51,34 @@ func eeveeNoteBootstrapPremiumPatchApplied() {
 }
 
 func eeveeShouldBlockDuplicateBootstrapRequest() -> Bool {
+    // Check environment variable first (survives Orion dylib reloads)
     if let p = getenv(eeveeBootstrapPatchedEnv), String(cString: p) == "1" {
         return true
     }
+    // Check UserDefaults as fallback
     let pid = Int(getpid())
     return pid != 0
         && UserDefaults.eeveeBootstrapPatchPid == pid
         && UserDefaults.hasPatchedBootstrap
+}
+
+// Enhanced bootstrap protection for v9.1.34+ aggressive session re-inits
+func eeveeShouldBlockAllBootstrapRequests() -> Bool {
+    // For v9.1.x, block ALL bootstrap requests after the first successful patch
+    // This prevents unpatched bootstrap responses during session re-inits
+    guard EeveeSpotify.hookTarget == .v91 else { return false }
+    
+    // If we've ever patched bootstrap in this process, block all future bootstrap requests
+    if let p = getenv(eeveeBootstrapPatchedEnv), String(cString: p) == "1" {
+        return true
+    }
+    
+    // Also check if we have a cached premium patch state
+    if UserDefaults.hasPatchedBootstrap {
+        return true
+    }
+    
+    return false
 }
 
 func exitApplication() {
