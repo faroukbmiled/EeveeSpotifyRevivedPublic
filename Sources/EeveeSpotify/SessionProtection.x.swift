@@ -340,20 +340,16 @@ class URLSessionTaskResumeHook: ClassHook<NSObject> {
             let elapsedInt = Int(elapsed)
             let path = url.path
 
-            // Enhanced bootstrap blocking for v9.1.34+ aggressive session re-inits
-            if path.contains("bootstrap/v1/bootstrap") {
-                // Use enhanced protection that blocks ALL bootstrap requests after first patch
-                if eeveeShouldBlockAllBootstrapRequests() {
-                    writeDebugLog("[NET] Cancelled bootstrap request (enhanced v9.1.x protection) at \(elapsedInt)s")
-                    task.cancel()
-                    return
-                }
-                // Fallback to original protection for non-v9.1.x versions
-                else if eeveeShouldBlockDuplicateBootstrapRequest() {
-                    writeDebugLog("[NET] Cancelled bootstrap re-fetch (patched-this-process gate) at \(elapsedInt)s")
-                    task.cancel()
-                    return
-                }
+            // If we've already patched bootstrap once in this OS process, block any subsequent
+            // bootstrap calls. Some 9.1.34+ builds fire a second bootstrap during an internal
+            // session re-init. That response can be unpatched free-tier UCS and overwrite premium.
+            // Rely on `setenv`: Orion may reload the dylib — Swift static gates reset — but env
+            // persists for the lifetime of the process (matches debug logs showing no cancellation
+            // when only static/UserDefaults guards were active after reinjection).
+            if path.contains("bootstrap/v1/bootstrap"), eeveeShouldBlockDuplicateBootstrapRequest() {
+                writeDebugLog("[NET] Cancelled bootstrap re-fetch (patched-this-process gate) at \(elapsedInt)s")
+                task.cancel()
+                return
             }
 
             // Log auth-related requests for diagnostics

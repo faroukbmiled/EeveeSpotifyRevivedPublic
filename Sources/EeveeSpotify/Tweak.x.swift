@@ -51,35 +51,15 @@ func eeveeNoteBootstrapPremiumPatchApplied() {
 }
 
 func eeveeShouldBlockDuplicateBootstrapRequest() -> Bool {
-    // Check environment variable first (survives Orion dylib reloads)
     if let p = getenv(eeveeBootstrapPatchedEnv), String(cString: p) == "1" {
         return true
     }
-    // Check UserDefaults as fallback
     let pid = Int(getpid())
     return pid != 0
         && UserDefaults.eeveeBootstrapPatchPid == pid
         && UserDefaults.hasPatchedBootstrap
 }
 
-// Enhanced bootstrap protection for v9.1.34+ aggressive session re-inits
-func eeveeShouldBlockAllBootstrapRequests() -> Bool {
-    // For v9.1.x, block ALL bootstrap requests after the first successful patch
-    // This prevents unpatched bootstrap responses during session re-inits
-    guard EeveeSpotify.hookTarget == .v91 else { return false }
-    
-    // If we've ever patched bootstrap in this process, block all future bootstrap requests
-    if let p = getenv(eeveeBootstrapPatchedEnv), String(cString: p) == "1" {
-        return true
-    }
-    
-    // Also check if we have a cached premium patch state
-    if UserDefaults.hasPatchedBootstrap {
-        return true
-    }
-    
-    return false
-}
 
 func exitApplication() {
     UIControl().sendAction(#selector(URLSessionTask.suspend), to: UIApplication.shared, for: nil)
@@ -325,25 +305,20 @@ struct EeveeSpotify: Tweak {
 
         // For 9.1.x, activate premium patching and lyrics
         if EeveeSpotify.hookTarget == .v91 {
-            writeDebugLog("[INIT] Starting v9.1.x specific initialization")
             
             // Premium patching (9.1.x)
             // Always activate the *bootstrap interceptor*; it is required for premium patching.
             if UserDefaults.patchType.isPatching {
-                writeDebugLog("[INIT] patchType.isPatching=true, activating PremiumBootstrapGroup")
                 PremiumBootstrapGroup().activate()
                 writeDebugLog("[INIT] Activated PremiumBootstrapGroup")
 
                 // Optional UI hooks (safe-gated)
                 if let hub = NSClassFromString("HUBViewModelBuilderImplementation"),
                    class_getInstanceMethod(hub, Selector(("addJSONDictionary:"))) != nil {
-                    writeDebugLog("[INIT] HUBViewModelBuilderImplementation found, activating PremiumUIHooksGroup")
                     PremiumUIHooksGroup().activate()
                 } else {
                     writeDebugLog("[INIT] Skipped PremiumUIHooksGroup (missing HUBViewModelBuilderImplementation/addJSONDictionary:)")
                 }
-            } else {
-                writeDebugLog("[INIT] patchType.isPatching=false, skipping premium patching")
             }
             
             let lyricsEnabled = UserDefaults.lyricsSource.isReplacingLyrics
