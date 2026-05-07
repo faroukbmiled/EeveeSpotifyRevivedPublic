@@ -25,18 +25,6 @@ func eeveePremiumCoercedProductStateIfNeeded(for state: AnyObject) -> (AnyObject
     
     writeDebugLog("[AUTH] ProductState analysis - type:\(type), catalogue:\(catalogue), fp:\(fp), name:\(name), ads:\(ads)")
     
-    // Enhanced v9.1.34+ compatibility: Always coerce if patching is enabled, regardless of current state
-    // This handles rapid state updates that can overwrite coerced premium state
-    if EeveeSpotify.hookTarget == .v91 && UserDefaults.patchType.isPatching {
-        writeDebugLog("[AUTH] v9.1.x detected with patching enabled - forcing coercion to prevent rapid state overwrites")
-        let mutable = NSMutableDictionary(dictionary: dict)
-        eeveeApplyPremiumProductStateKeys(to: mutable)
-        eeveeStripFreeTierLeakKeys(from: mutable)
-        writeDebugLog("[AUTH] Forced coercion applied for v9.1.x stability")
-        return (mutable as AnyObject, true)
-    }
-    
-    // Original logic for other versions
     guard eeveeProductStateAppearsFreeTier(dict) else { 
         writeDebugLog("[AUTH] Skipping coercion - productState does not appear free-tier")
         return (state, false) 
@@ -62,27 +50,14 @@ private func eeveeProductStateAppearsFreeTier(_ dict: NSDictionary) -> Bool {
     let name = eeveeNormKey(dict, "name")
     let license = eeveeNormKey(dict, "player-license")
     let licenseV2 = eeveeNormKey(dict, "player-license-v2")
-    let hasAds = dict["ads"] as? Int == 1
     
-    // Ultra-aggressive detection for v9.1.34+ - catch ANY possible free-tier indicator
+    // Enhanced detection for v9.1.34+ - catch more free-tier indicators
     let isFreeType = t == "free" || catalogue == "free" || fp.contains("pr:free")
     let isFreeName = name.contains("free") || name.contains("ad-supported")
     let isFreeLicense = license.contains("free") || licenseV2.contains("free")
     let hasAds = dict["ads"] as? Int == 1
     
-    // Additional checks for v9.1.34 edge cases
-    let hasAdsFlag = dict["ads"] != nil
-    let hasNoPremiumFlags = (dict["offline"] as? Int != 1) || (dict["on-demand"] as? Int != 1)
-    let hasFreeLicenseText = license.lowercased().contains("free") || licenseV2.lowercased().contains("free")
-    let hasFreeCatalogue = catalogue.lowercased().contains("free")
-    
-    let isFreeTier = isFreeType || isFreeName || isFreeLicense || hasAds || hasAdsFlag || hasNoPremiumFlags || hasFreeLicenseText || hasFreeCatalogue
-    
-    if isFreeTier {
-        writeDebugLog("[AUTH] Ultra-aggressive free-tier detection triggered - multiple indicators found")
-    }
-    
-    return isFreeTier
+    return isFreeType || isFreeName || isFreeLicense || hasAds
 }
 
 private func eeveeApplyPremiumProductStateKeys(to m: NSMutableDictionary) {
