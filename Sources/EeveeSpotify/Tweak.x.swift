@@ -312,13 +312,27 @@ struct EeveeSpotify: Tweak {
                 PremiumBootstrapGroup().activate()
                 writeDebugLog("[INIT] Activated PremiumBootstrapGroup")
 
-                // Optional UI hooks (safe-gated)
-                if let hub = NSClassFromString("HUBViewModelBuilderImplementation"),
-                   class_getInstanceMethod(hub, Selector(("addJSONDictionary:"))) != nil {
+                // Optional UI hooks (safe-gated) - Enhanced for v9.1.x compatibility
+                let hubClass = NSClassFromString("HUBViewModelBuilderImplementation")
+                let hubMethodExists = hubClass != nil && class_getInstanceMethod(hubClass, Selector(("addJSONDictionary:"))) != nil
+                
+                if hubMethodExists {
                     PremiumUIHooksGroup().activate()
+                    writeDebugLog("[INIT] Activated PremiumUIHooksGroup (HUBViewModelBuilderImplementation found)")
                 } else {
-                    writeDebugLog("[INIT] Skipped PremiumUIHooksGroup (missing HUBViewModelBuilderImplementation/addJSONDictionary:)")
+                    // For v9.1.x, try alternative activation methods
+                    if EeveeSpotify.hookTarget == .v91 {
+                        // Try activating anyway - some hooks might still work
+                        PremiumUIHooksGroup().activate()
+                        writeDebugLog("[INIT] Activated PremiumUIHooksGroup for v9.1.x (forced activation)")
+                    } else {
+                        writeDebugLog("[INIT] Skipped PremiumUIHooksGroup (missing HUBViewModelBuilderImplementation/addJSONDictionary:)")
+                    }
                 }
+                
+                // Always activate AdBlockerGroup for premium ad blocking
+                AdBlockerGroup().activate()
+                writeDebugLog("[INIT] Activated AdBlockerGroup for premium ad blocking")
             }
             
             let lyricsEnabled = UserDefaults.lyricsSource.isReplacingLyrics
