@@ -15,9 +15,9 @@ class UniversalProfileSettingsSectionHook: ClassHook<NSObject> {
     typealias Group = UniversalSettingsIntegrationProfileGroup
     static let targetName = "ProfileSettingsSection"
     
-    init() {
+    override init(target: NSObject) {
         writeDebugLog("[UI] UniversalProfileSettingsSectionHook initialized")
-        super.init()
+        super.init(target: target)
     }
     
     func numberOfRows() -> Int {
