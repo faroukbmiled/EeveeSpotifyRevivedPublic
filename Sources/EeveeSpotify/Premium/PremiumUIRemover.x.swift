@@ -5,6 +5,10 @@ import UIKit
 class UILabelHook: ClassHook<UILabel> {
     typealias Group = PremiumUIHooksGroup
     
+    override init(target: UILabel) {
+        super.init(target: target)
+    }
+    
     func setText(_ text: String?) {
         guard let text = text else {
             orig.setText(text)
@@ -37,6 +41,10 @@ class UILabelHook: ClassHook<UILabel> {
 // Hook UIImageView to remove premium-related icons
 class UIImageViewHook: ClassHook<UIImageView> {
     typealias Group = PremiumUIHooksGroup
+    
+    override init(target: UIImageView) {
+        super.init(target: target)
+    }
     
     func setImage(_ image: UIImage?) {
         guard let image = image else {
@@ -73,6 +81,10 @@ class UIImageViewHook: ClassHook<UIImageView> {
 // Hook UIButton to modify premium-related button text
 class UIButtonHook: ClassHook<UIButton> {
     typealias Group = PremiumUIHooksGroup
+    
+    override init(target: UIButton) {
+        super.init(target: target)
+    }
     
     func setTitle(_ title: String?, for state: UIControl.State) {
         guard let title = title else {
