@@ -9,7 +9,7 @@ class HUBViewModelBuilderImplementationHook: ClassHook<NSObject> {
     typealias Group = PremiumUIHooksGroup
     static let targetName: String = "HUBViewModelBuilderImplementation"
     
-    override init(target: NSObject) {
+    required init(target: NSObject) {
         writeDebugLog("[UI] HUBViewModelBuilderImplementationHook initialized")
         super.init(target: target)
     }

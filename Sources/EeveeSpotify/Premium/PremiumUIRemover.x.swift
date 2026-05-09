@@ -5,7 +5,7 @@ import UIKit
 class UILabelHook: ClassHook<UILabel> {
     typealias Group = PremiumUIHooksGroup
     
-    override init(target: UILabel) {
+    required init(target: UILabel) {
         super.init(target: target)
     }
     
@@ -42,7 +42,7 @@ class UILabelHook: ClassHook<UILabel> {
 class UIImageViewHook: ClassHook<UIImageView> {
     typealias Group = PremiumUIHooksGroup
     
-    override init(target: UIImageView) {
+    required init(target: UIImageView) {
         super.init(target: target)
     }
     
@@ -82,7 +82,7 @@ class UIImageViewHook: ClassHook<UIImageView> {
 class UIButtonHook: ClassHook<UIButton> {
     typealias Group = PremiumUIHooksGroup
     
-    override init(target: UIButton) {
+    required init(target: UIButton) {
         super.init(target: target)
     }
     
