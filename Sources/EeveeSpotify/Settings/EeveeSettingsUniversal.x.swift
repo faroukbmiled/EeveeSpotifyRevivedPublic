@@ -15,7 +15,7 @@ class UniversalProfileSettingsSectionHook: ClassHook<NSObject> {
     typealias Group = UniversalSettingsIntegrationProfileGroup
     static let targetName = "ProfileSettingsSection"
     
-    override init(target: NSObject) {
+    required init(target: NSObject) {
         writeDebugLog("[UI] UniversalProfileSettingsSectionHook initialized")
         super.init(target: target)
     }
