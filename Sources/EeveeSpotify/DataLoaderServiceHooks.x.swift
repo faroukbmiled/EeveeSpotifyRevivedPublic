@@ -75,8 +75,7 @@ class SPTDataLoaderServiceHook: ClassHook<NSObject>, SpotifySessionDelegate {
     func shouldModifyResponse(for url: URL) -> Bool {
         let patchRequests = UserDefaults.patchType.isPatching
         let shouldReplaceLyrics = UserDefaults.lyricsSource.isReplacingLyrics
-        
-        guard let isLyricsURL = url.isLyrics else { return false }
+        let isLyricsURL = url.isLyrics
         
         // Debug logging for premium UI endpoints
         if url.isPremiumPlanRow {
@@ -89,7 +88,7 @@ class SPTDataLoaderServiceHook: ClassHook<NSObject>, SpotifySessionDelegate {
         // Bootstrap must patch even while PremiumBootstrapGroup.isActive is briefly false during Orion/session reinits.
         let shouldModify = (patchRequests && url.isBootstrap)
             || (shouldReplaceLyrics && isLyricsURL)
-            || ((BasePremiumPatchingGroup.isActive || PremiumBootstrapGroup.isActive) && (url.isCustomize || url.isPremiumPlanRow || url.isPremiumBadge || url.isPlanOverview || url.isDAC))
+            || ((BasePremiumPatchingGroup.isActive || PremiumBootstrapGroup.isActive) && (url.isCustomize || url.isPremiumPlanRow || url.isPremiumBadge || url.isPlanOverview))
         
         if (url.isPremiumPlanRow || url.isPremiumBadge) && shouldModify {
             writeDebugLog("[UI] shouldModifyResponse: Will modify premium UI endpoint")
@@ -181,7 +180,7 @@ class SPTDataLoaderServiceHook: ClassHook<NSObject>, SpotifySessionDelegate {
             return
         }
 
-        guard error == nil, shouldModify(url) else {
+        guard error == nil, shouldModifyResponse(for: url) else {
             orig.URLSession(session, task: task, didCompleteWithError: error)
             return
         }
@@ -350,7 +349,7 @@ class SPTDataLoaderServiceHook: ClassHook<NSObject>, SpotifySessionDelegate {
             return
         }
 
-        if shouldModify(url) {
+        if shouldModifyResponse(for: url) {
             URLSessionHelper.shared.setOrAppend(data, for: url)
             return
         }
