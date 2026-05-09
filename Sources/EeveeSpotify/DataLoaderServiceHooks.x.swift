@@ -22,10 +22,14 @@ class SPTDataLoaderServiceHook: ClassHook<NSObject>, SpotifySessionDelegate {
     // orion:new
     func shouldBlock(_ url: URL) -> Bool {
         let elapsed = Date().timeIntervalSince(tweakInitTime)
+        let elapsedInt = Int(elapsed)
         let path = url.path.lowercased()
+        
+        writeDebugLog("[DL] shouldBlock checking \(url.absoluteString) at \(elapsedInt)s")
         
         // Always block explicit session destroy/token delete or ad-related requests
         if url.isDeleteToken || url.isSessionInvalidation || path.contains("session/purge") || path.contains("token/revoke") || url.isAdRelated {
+            writeDebugLog("[DL] Blocking \(url.absoluteString) - session destroy/ad related")
             return true
         }
         
@@ -34,17 +38,19 @@ class SPTDataLoaderServiceHook: ClassHook<NSObject>, SpotifySessionDelegate {
         // (e.g. Cartier on Search, Ross on Home shown in the screenshots).
         // Any /dac/view/v1/ request is ad-related; return empty to suppress.
         if path.contains("/dac/view/v1/") {
+            writeDebugLog("[DL] Blocking \(url.absoluteString) - DAC ad request")
             return true
         }
 
         // Block the Esperanto ad slot service used for in-stream and overlay ads
         if path.contains("/esperanto/") && (path.contains("ad") || path.contains("slot")) {
+            writeDebugLog("[DL] Blocking \(url.absoluteString) - Esperanto ad slot")
             return true
         }
 
         // Only block these after startup (30s) to allow initial login/initialization
         if elapsed > 30 {
-            return url.isAccountValidate || url.isOndemandSelector
+            let shouldBlock = url.isAccountValidate || url.isOndemandSelector
                 || url.isTrialsFacade || url.isPremiumMarketing || url.isPendragonFetchMessageList
                 || url.isPushkaTokens || url.path.contains("signup/public") || url.path.contains("apresolve")
                 || url.path.contains("pses/screenconfig")
@@ -54,24 +60,48 @@ class SPTDataLoaderServiceHook: ClassHook<NSObject>, SpotifySessionDelegate {
                 // the app re-enables ad feature flags from the server response.
                 // We block re-fetches here; the cached modified data is served via the 304 path.
                 || url.path.contains("v1/customize")
+            
+            if shouldBlock {
+                writeDebugLog("[DL] Blocking \(url.absoluteString) - post-30s protection")
+                return true
+            }
         }
         
+        writeDebugLog("[DL] Allowing \(url.absoluteString) - no block conditions met")
         return false
     }
 
     // orion:new
-    func shouldModify(_ url: URL) -> Bool {
+    func shouldModifyResponse(for url: URL) -> Bool {
         let patchRequests = UserDefaults.patchType.isPatching
-        let shouldPatchPremium = BasePremiumPatchingGroup.isActive || PremiumBootstrapGroup.isActive
-        let shouldReplaceLyrics = BaseLyricsGroup.isActive
-        
+        let shouldReplaceLyrics = UserDefaults.lyricsSource.isReplacingLyrics
         let isLyricsURL = url.isLyrics
-        let path = url.path.lowercased()
-        let isDAC = path.contains("/dac/view/v1/")
+        
+        // Debug logging for premium UI endpoints
+        if url.isPremiumPlanRow {
+            writeDebugLog("[UI] shouldModifyResponse: GetPremiumPlanRow detected, patchRequests=\(patchRequests)")
+        }
+        if url.isPremiumBadge {
+            writeDebugLog("[UI] shouldModifyResponse: GetYourPremiumBadge detected, patchRequests=\(patchRequests)")
+        }
+        
+        // Debug logging for potential premium status endpoints
+        if url.path.contains("accountsettings") || url.path.contains("profile") {
+            writeDebugLog("[UI] shouldModifyResponse: Account/Profile endpoint detected: \(url.path), patchRequests=\(patchRequests)")
+        }
+        
         // Bootstrap must patch even while PremiumBootstrapGroup.isActive is briefly false during Orion/session reinits.
-        return (patchRequests && url.isBootstrap)
+        let shouldModify = (patchRequests && url.isBootstrap)
             || (shouldReplaceLyrics && isLyricsURL)
-            || (shouldPatchPremium && (url.isCustomize || url.isPremiumPlanRow || url.isPremiumBadge || url.isPlanOverview || isDAC))
+            || ((BasePremiumPatchingGroup.isActive || PremiumBootstrapGroup.isActive) && (url.isCustomize || url.isPremiumPlanRow || url.isPremiumBadge || url.isPlanOverview || url.path.contains("accountsettings")))
+        
+        if (url.isPremiumPlanRow || url.isPremiumBadge) && shouldModify {
+            writeDebugLog("[UI] shouldModifyResponse: Will modify premium UI endpoint")
+        } else if (url.isPremiumPlanRow || url.isPremiumBadge) && !shouldModify {
+            writeDebugLog("[UI] shouldModifyResponse: Will NOT modify premium UI endpoint - condition not met")
+        }
+        
+        return shouldModify
     }
     
     // orion:new
@@ -155,7 +185,7 @@ class SPTDataLoaderServiceHook: ClassHook<NSObject>, SpotifySessionDelegate {
             return
         }
 
-        guard error == nil, shouldModify(url) else {
+        guard error == nil, shouldModifyResponse(for: url) else {
             orig.URLSession(session, task: task, didCompleteWithError: error)
             return
         }
@@ -208,6 +238,7 @@ class SPTDataLoaderServiceHook: ClassHook<NSObject>, SpotifySessionDelegate {
             }
             
             if url.isPremiumPlanRow {
+                writeDebugLog("[UI] Intercepting GetPremiumPlanRow request - applying EeveeSpotify branding")
                 respondWithCustomData(
                     try getPremiumPlanRowData(
                         originalPremiumPlanRow: try PremiumPlanRow(serializedBytes: buffer)
@@ -220,9 +251,39 @@ class SPTDataLoaderServiceHook: ClassHook<NSObject>, SpotifySessionDelegate {
             }
             
             if url.isPremiumBadge {
+                writeDebugLog("[UI] Intercepting GetYourPremiumBadge request - applying EeveeSpotify branding")
                 respondWithCustomData(try getPremiumPlanBadge(), task: task, session: session)
                 orig.URLSession(session, task: task, didCompleteWithError: nil)
                 return
+            }
+            
+            if url.path.contains("accountsettings") {
+                writeDebugLog("[UI] Intercepting accountsettings request - checking for premium status fields")
+                // Try to parse and modify account settings if they contain premium status
+                if let jsonString = String(data: buffer, encoding: .utf8),
+                   jsonData = jsonString.data(using: .utf8) {
+                    do {
+                        if let json = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+                           var mutableJson = json {
+                            // Look for premium status fields and modify them
+                            if let product = mutableJson["product"] as? [String: Any] {
+                                var modifiedProduct = product
+                                modifiedProduct["type"] = "premium"
+                                modifiedProduct["catalogue"] = "premium"
+                                modifiedProduct["name"] = "EeveeSpotify Premium"
+                                mutableJson["product"] = modifiedProduct
+                                writeDebugLog("[UI] Modified accountsettings premium status")
+                            }
+                            
+                            let modifiedData = try JSONSerialization.data(withJSONObject: mutableJson)
+                            respondWithCustomData(modifiedData, task: task, session: session)
+                            orig.URLSession(session, task: task, didCompleteWithError: nil)
+                            return
+                        }
+                    } catch {
+                        writeDebugLog("[UI] Failed to modify accountsettings JSON: \(error)")
+                    }
+                }
             }
             
             if url.isBootstrap {
@@ -322,7 +383,7 @@ class SPTDataLoaderServiceHook: ClassHook<NSObject>, SpotifySessionDelegate {
             return
         }
 
-        if shouldModify(url) {
+        if shouldModifyResponse(for: url) {
             URLSessionHelper.shared.setOrAppend(data, for: url)
             return
         }
