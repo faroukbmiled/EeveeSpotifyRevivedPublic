@@ -1,6 +1,15 @@
 import Orion
 import UIKit
 
+// NOTE: Temporarily disabled aggressive UI hooks to prevent crashes
+// These hooks were causing app launch issues due to being too broad
+// 
+// If you need to re-enable, do so gradually with more specific targeting:
+// 1. Start with only UILabelHook
+// 2. Add UIImageViewHook with stricter size/identifier checks
+// 3. Add UIButtonHook with more specific text matching
+
+/*
 // Hook UILabel to modify premium-related text
 class UILabelHook: ClassHook<UILabel> {
     typealias Group = PremiumUIHooksGroup
@@ -114,3 +123,4 @@ class UIButtonHook: ClassHook<UIButton> {
         return text
     }
 }
+*/
