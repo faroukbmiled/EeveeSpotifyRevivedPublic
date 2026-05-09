@@ -85,10 +85,15 @@ class SPTDataLoaderServiceHook: ClassHook<NSObject>, SpotifySessionDelegate {
             writeDebugLog("[UI] shouldModifyResponse: GetYourPremiumBadge detected, patchRequests=\(patchRequests)")
         }
         
+        // Debug logging for potential premium status endpoints
+        if url.path.contains("accountsettings") || url.path.contains("profile") {
+            writeDebugLog("[UI] shouldModifyResponse: Account/Profile endpoint detected: \(url.path), patchRequests=\(patchRequests)")
+        }
+        
         // Bootstrap must patch even while PremiumBootstrapGroup.isActive is briefly false during Orion/session reinits.
         let shouldModify = (patchRequests && url.isBootstrap)
             || (shouldReplaceLyrics && isLyricsURL)
-            || ((BasePremiumPatchingGroup.isActive || PremiumBootstrapGroup.isActive) && (url.isCustomize || url.isPremiumPlanRow || url.isPremiumBadge || url.isPlanOverview))
+            || ((BasePremiumPatchingGroup.isActive || PremiumBootstrapGroup.isActive) && (url.isCustomize || url.isPremiumPlanRow || url.isPremiumBadge || url.isPlanOverview || url.path.contains("accountsettings")))
         
         if (url.isPremiumPlanRow || url.isPremiumBadge) && shouldModify {
             writeDebugLog("[UI] shouldModifyResponse: Will modify premium UI endpoint")
@@ -250,6 +255,35 @@ class SPTDataLoaderServiceHook: ClassHook<NSObject>, SpotifySessionDelegate {
                 respondWithCustomData(try getPremiumPlanBadge(), task: task, session: session)
                 orig.URLSession(session, task: task, didCompleteWithError: nil)
                 return
+            }
+            
+            if url.path.contains("accountsettings") {
+                writeDebugLog("[UI] Intercepting accountsettings request - checking for premium status fields")
+                // Try to parse and modify account settings if they contain premium status
+                if let jsonString = String(data: buffer, encoding: .utf8),
+                   jsonData = jsonString.data(using: .utf8) {
+                    do {
+                        if let json = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
+                           var mutableJson = json {
+                            // Look for premium status fields and modify them
+                            if let product = mutableJson["product"] as? [String: Any] {
+                                var modifiedProduct = product
+                                modifiedProduct["type"] = "premium"
+                                modifiedProduct["catalogue"] = "premium"
+                                modifiedProduct["name"] = "EeveeSpotify Premium"
+                                mutableJson["product"] = modifiedProduct
+                                writeDebugLog("[UI] Modified accountsettings premium status")
+                            }
+                            
+                            let modifiedData = try JSONSerialization.data(withJSONObject: mutableJson)
+                            respondWithCustomData(modifiedData, task: task, session: session)
+                            orig.URLSession(session, task: task, didCompleteWithError: nil)
+                            return
+                        }
+                    } catch {
+                        writeDebugLog("[UI] Failed to modify accountsettings JSON: \(error)")
+                    }
+                }
             }
             
             if url.isBootstrap {
