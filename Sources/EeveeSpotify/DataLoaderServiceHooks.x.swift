@@ -72,18 +72,32 @@ class SPTDataLoaderServiceHook: ClassHook<NSObject>, SpotifySessionDelegate {
     }
 
     // orion:new
-    func shouldModify(_ url: URL) -> Bool {
+    func shouldModifyResponse(for url: URL) -> Bool {
         let patchRequests = UserDefaults.patchType.isPatching
-        let shouldPatchPremium = BasePremiumPatchingGroup.isActive || PremiumBootstrapGroup.isActive
-        let shouldReplaceLyrics = BaseLyricsGroup.isActive
+        let shouldReplaceLyrics = UserDefaults.lyricsSource.isReplacingLyrics
         
-        let isLyricsURL = url.isLyrics
-        let path = url.path.lowercased()
-        let isDAC = path.contains("/dac/view/v1/")
+        guard let isLyricsURL = url.isLyrics else { return false }
+        
+        // Debug logging for premium UI endpoints
+        if url.isPremiumPlanRow {
+            writeDebugLog("[UI] shouldModifyResponse: GetPremiumPlanRow detected, patchRequests=\(patchRequests)")
+        }
+        if url.isPremiumBadge {
+            writeDebugLog("[UI] shouldModifyResponse: GetYourPremiumBadge detected, patchRequests=\(patchRequests)")
+        }
+        
         // Bootstrap must patch even while PremiumBootstrapGroup.isActive is briefly false during Orion/session reinits.
-        return (patchRequests && url.isBootstrap)
+        let shouldModify = (patchRequests && url.isBootstrap)
             || (shouldReplaceLyrics && isLyricsURL)
-            || (shouldPatchPremium && (url.isCustomize || url.isPremiumPlanRow || url.isPremiumBadge || url.isPlanOverview || isDAC))
+            || ((BasePremiumPatchingGroup.isActive || PremiumBootstrapGroup.isActive) && (url.isCustomize || url.isPremiumPlanRow || url.isPremiumBadge || url.isPlanOverview || url.isDAC))
+        
+        if (url.isPremiumPlanRow || url.isPremiumBadge) && shouldModify {
+            writeDebugLog("[UI] shouldModifyResponse: Will modify premium UI endpoint")
+        } else if (url.isPremiumPlanRow || url.isPremiumBadge) && !shouldModify {
+            writeDebugLog("[UI] shouldModifyResponse: Will NOT modify premium UI endpoint - condition not met")
+        }
+        
+        return shouldModify
     }
     
     // orion:new
@@ -220,6 +234,7 @@ class SPTDataLoaderServiceHook: ClassHook<NSObject>, SpotifySessionDelegate {
             }
             
             if url.isPremiumPlanRow {
+                writeDebugLog("[UI] Intercepting GetPremiumPlanRow request - applying EeveeSpotify branding")
                 respondWithCustomData(
                     try getPremiumPlanRowData(
                         originalPremiumPlanRow: try PremiumPlanRow(serializedBytes: buffer)
@@ -232,6 +247,7 @@ class SPTDataLoaderServiceHook: ClassHook<NSObject>, SpotifySessionDelegate {
             }
             
             if url.isPremiumBadge {
+                writeDebugLog("[UI] Intercepting GetYourPremiumBadge request - applying EeveeSpotify branding")
                 respondWithCustomData(try getPremiumPlanBadge(), task: task, session: session)
                 orig.URLSession(session, task: task, didCompleteWithError: nil)
                 return
