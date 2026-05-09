@@ -261,28 +261,46 @@ class SPTDataLoaderServiceHook: ClassHook<NSObject>, SpotifySessionDelegate {
                 writeDebugLog("[UI] Intercepting accountsettings request - checking for premium status fields")
                 // Try to parse and modify account settings if they contain premium status
                 if let jsonString = String(data: buffer, encoding: .utf8) {
+                    writeDebugLog("[UI] Accountsettings response (first 200 chars): \(String(jsonString.prefix(200)))")
                     let jsonData = jsonString.data(using: .utf8)
                     do {
                         if let json = try JSONSerialization.jsonObject(with: jsonData ?? Data()) as? [String: Any] {
+                            writeDebugLog("[UI] Successfully parsed accountsettings JSON")
                             var mutableJson = json
+                            writeDebugLog("[UI] Accountsettings JSON keys: \(Array(json.keys))")
+                            
                             // Look for premium status fields and modify them
                             if let product = mutableJson["product"] as? [String: Any] {
+                                writeDebugLog("[UI] Found product field: \(product)")
                                 var modifiedProduct = product
                                 modifiedProduct["type"] = "premium"
                                 modifiedProduct["catalogue"] = "premium"
                                 modifiedProduct["name"] = "EeveeSpotify Premium"
                                 mutableJson["product"] = modifiedProduct
                                 writeDebugLog("[UI] Modified accountsettings premium status")
+                            } else {
+                                writeDebugLog("[UI] No product field found in accountsettings JSON")
+                                // Check for other potential premium status fields
+                                writeDebugLog("[UI] Checking for other premium fields...")
+                                for (key, value) in json {
+                                    if key.lowercased().contains("premium") || key.lowercased().contains("product") || key.lowercased().contains("subscription") {
+                                        writeDebugLog("[UI] Found potential premium field '\(key)': \(value)")
+                                    }
+                                }
                             }
                             
                             let modifiedData = try JSONSerialization.data(withJSONObject: mutableJson)
                             respondWithCustomData(modifiedData, task: task, session: session)
                             orig.URLSession(session, task: task, didCompleteWithError: nil)
                             return
+                        } else {
+                            writeDebugLog("[UI] Accountsettings JSON is not a dictionary")
                         }
                     } catch {
                         writeDebugLog("[UI] Failed to modify accountsettings JSON: \(error)")
                     }
+                } else {
+                    writeDebugLog("[UI] Accountsettings response is not valid UTF-8 string")
                 }
             }
             
