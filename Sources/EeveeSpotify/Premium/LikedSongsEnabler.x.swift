@@ -10,11 +10,14 @@ class HUBViewModelBuilderImplementationHook: ClassHook<NSObject> {
     static let targetName: String = "HUBViewModelBuilderImplementation"
     
     func addJSONDictionary(_ dictionary: NSDictionary?) {
+        writeDebugLog("[UI] HUBViewModelBuilderImplementationHook.addJSONDictionary called")
         guard let dictionary = dictionary else {
+            writeDebugLog("[UI] HUBViewModelBuilderImplementationHook: dictionary is nil")
             return
         }
         
         let mutableDictionary = NSMutableDictionary(dictionary: dictionary)
+        writeDebugLog("[UI] HUBViewModelBuilderImplementationHook: processing dictionary with id=\(dictionary["id"] as? String ?? "unknown")")
         
         let id = dictionary["id"] as? String
         
