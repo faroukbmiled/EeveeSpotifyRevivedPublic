@@ -21,9 +21,12 @@ class HUBViewModelBuilderImplementationHook: ClassHook<NSObject> {
         
         let id = dictionary["id"] as? String
         
+        // Comprehensive premium icon and text modification
+        modifyPremiumUIElements(in: mutableDictionary)
+        
         if id == "artist-entity-view" {
             guard var components = dictionary["body"] as? [[String: Any]] else {
-                orig.addJSONDictionary(dictionary)
+                orig.addJSONDictionary(mutableDictionary)
                 return
             }
             
@@ -49,5 +52,72 @@ class HUBViewModelBuilderImplementationHook: ClassHook<NSObject> {
         }
         
         orig.addJSONDictionary(mutableDictionary)
+    }
+    
+    private func modifyPremiumUIElements(in dictionary: NSMutableDictionary) {
+        // Recursively modify premium-related text and icons
+        modifyPremiumText(in: dictionary)
+        
+        // Handle nested structures
+        if let body = dictionary["body"] as? NSMutableArray {
+            for item in body {
+                if let dict = item as? NSMutableDictionary {
+                    modifyPremiumUIElements(in: dict)
+                }
+            }
+        }
+        
+        if let children = dictionary["children"] as? NSMutableArray {
+            for item in children {
+                if let dict = item as? NSMutableDictionary {
+                    modifyPremiumUIElements(in: dict)
+                }
+            }
+        }
+    }
+    
+    private func modifyPremiumText(in dictionary: NSMutableDictionary) {
+        // Modify text fields that contain premium references
+        if let text = dictionary["text"] as? NSMutableDictionary {
+            modifyTextDictionary(text)
+        }
+        
+        if let title = dictionary["title"] as? String {
+            if title.lowercased().contains("premium") || title.lowercased().contains("spotify free") {
+                dictionary["title"] = "EeveeSpotify"
+                writeDebugLog("[UI] Modified premium title to EeveeSpotify")
+            }
+        }
+        
+        if let subtitle = dictionary["subtitle"] as? String {
+            if subtitle.lowercased().contains("premium") || subtitle.lowercased().contains("spotify free") {
+                dictionary["subtitle"] = "Premium"
+                writeDebugLog("[UI] Modified premium subtitle to Premium")
+            }
+        }
+        
+        // Handle image URLs that might contain premium icons
+        if let imageUrl = dictionary["imageUri"] as? String {
+            if imageUrl.lowercased().contains("premium") || imageUrl.lowercased().contains("badge") {
+                dictionary["imageUri"] = "" // Remove premium badge images
+                writeDebugLog("[UI] Removed premium badge image")
+            }
+        }
+    }
+    
+    private func modifyTextDictionary(_ textDict: NSMutableDictionary) {
+        if let title = textDict["title"] as? String {
+            if title.lowercased().contains("premium") || title.lowercased().contains("spotify free") {
+                textDict["title"] = "EeveeSpotify"
+                writeDebugLog("[UI] Modified premium text title to EeveeSpotify")
+            }
+        }
+        
+        if let subtitle = textDict["subtitle"] as? String {
+            if subtitle.lowercased().contains("premium") || subtitle.lowercased().contains("spotify free") {
+                textDict["subtitle"] = "Premium"
+                writeDebugLog("[UI] Modified premium text subtitle to Premium")
+            }
+        }
     }
 }
