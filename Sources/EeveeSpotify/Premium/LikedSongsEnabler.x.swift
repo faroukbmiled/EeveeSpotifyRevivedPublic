@@ -9,6 +9,11 @@ class HUBViewModelBuilderImplementationHook: ClassHook<NSObject> {
     typealias Group = PremiumUIHooksGroup
     static let targetName: String = "HUBViewModelBuilderImplementation"
     
+    init() {
+        writeDebugLog("[UI] HUBViewModelBuilderImplementationHook initialized")
+        super.init()
+    }
+    
     func addJSONDictionary(_ dictionary: NSDictionary?) {
         writeDebugLog("[UI] HUBViewModelBuilderImplementationHook.addJSONDictionary called")
         guard let dictionary = dictionary else {
