@@ -15,6 +15,11 @@ class UniversalProfileSettingsSectionHook: ClassHook<NSObject> {
     typealias Group = UniversalSettingsIntegrationProfileGroup
     static let targetName = "ProfileSettingsSection"
     
+    init() {
+        writeDebugLog("[UI] UniversalProfileSettingsSectionHook initialized")
+        super.init()
+    }
+    
     func numberOfRows() -> Int {
         let original = orig.numberOfRows()
         return original + 1
@@ -31,7 +36,7 @@ class UniversalProfileSettingsSectionHook: ClassHook<NSObject> {
         orig.didSelectRow(row)
     }
     
-    func cellForRow(_ row: Int) -> UITableViewCell {
+    func cellForRow(_ row: Int) -> UITableViewCell? {
         let originalRows = orig.numberOfRows()
         
         if row == originalRows {
@@ -52,7 +57,40 @@ class UniversalProfileSettingsSectionHook: ClassHook<NSObject> {
             return tableViewCell
         }
         
-        return orig.cellForRow(row)
+        let cell = orig.cellForRow(row)
+        
+        // Modify premium status in existing profile cells
+        if let cell = cell {
+            modifyPremiumStatusInCell(cell)
+        }
+        
+        return cell
+    }
+    
+    private func modifyPremiumStatusInCell(_ cell: UITableViewCell) {
+        // Check for premium-related text in cell
+        if let textLabel = cell.textLabel,
+           let text = textLabel.text,
+           (text.lowercased().contains("premium") || text.lowercased().contains("spotify free")) {
+            textLabel.text = "EeveeSpotify Premium"
+            writeDebugLog("[UI] Modified profile cell text to EeveeSpotify Premium")
+        }
+        
+        if let detailTextLabel = cell.detailTextLabel,
+           let detailText = detailTextLabel.text,
+           (detailText.lowercased().contains("premium") || detailText.lowercased().contains("spotify free")) {
+            detailTextLabel.text = "Premium"
+            writeDebugLog("[UI] Modified profile cell detail text to Premium")
+        }
+        
+        // Remove premium icons from cell image views
+        if let imageView = cell.imageView,
+           let image = imageView.image,
+           let imageName = image.accessibilityIdentifier,
+           imageName.lowercased().contains("premium") || imageName.lowercased().contains("badge") {
+            imageView.image = nil
+            writeDebugLog("[UI] Removed premium icon from profile cell")
+        }
     }
     
     private func openEeveeSettingsFromHook() {
