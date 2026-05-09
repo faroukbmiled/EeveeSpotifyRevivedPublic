@@ -260,11 +260,11 @@ class SPTDataLoaderServiceHook: ClassHook<NSObject>, SpotifySessionDelegate {
             if url.path.contains("accountsettings") {
                 writeDebugLog("[UI] Intercepting accountsettings request - checking for premium status fields")
                 // Try to parse and modify account settings if they contain premium status
-                if let jsonString = String(data: buffer, encoding: .utf8),
-                   jsonData = jsonString.data(using: .utf8) {
+                if let jsonString = String(data: buffer, encoding: .utf8) {
+                    let jsonData = jsonString.data(using: .utf8)
                     do {
-                        if let json = try JSONSerialization.jsonObject(with: jsonData) as? [String: Any],
-                           var mutableJson = json {
+                        if let json = try JSONSerialization.jsonObject(with: jsonData ?? Data()) as? [String: Any] {
+                            var mutableJson = json
                             // Look for premium status fields and modify them
                             if let product = mutableJson["product"] as? [String: Any] {
                                 var modifiedProduct = product
