@@ -1,13 +1,50 @@
 import Orion
 import UIKit
 
-// NOTE: Temporarily disabled aggressive UI hooks to prevent crashes
-// These hooks were causing app launch issues due to being too broad
-// 
-// If you need to re-enable, do so gradually with more specific targeting:
-// 1. Start with only UILabelHook
-// 2. Add UIImageViewHook with stricter size/identifier checks
-// 3. Add UIButtonHook with more specific text matching
+// Enable targeted UILabel hook with strict safety checks
+// This is a conservative approach to avoid crashes while targeting premium text
+
+// Hook UILabel to modify premium-related text - SAFETY-FIRST APPROACH
+class UILabelHook: ClassHook<UILabel> {
+    typealias Group = PremiumUIHooksGroup
+    
+    required init(target: UILabel) {
+        super.init(target: target)
+    }
+    
+    func setText(_ text: String?) {
+        guard let text = text else {
+            orig.setText(text)
+            return
+        }
+        
+        // SAFETY CHECK: Only modify if text contains premium references AND is reasonable length
+        let lowercased = text.lowercased()
+        if (lowercased.contains("premium") || lowercased.contains("spotify free")) && text.count < 100 {
+            let modifiedText = modifyPremiumText(text)
+            if modifiedText != text {
+                writeDebugLog("[UI] Modified UILabel text: '\(text)' -> '\(modifiedText)'")
+                orig.setText(modifiedText)
+                return
+            }
+        }
+        
+        orig.setText(text)
+    }
+    
+    private func modifyPremiumText(_ text: String) -> String {
+        let lowercased = text.lowercased()
+        
+        if lowercased.contains("spotify free") {
+            return "EeveeSpotify"
+        } else if lowercased.contains("premium") && !lowercased.contains("eevee") {
+            return text.replacingOccurrences(of: "Premium", with: "EeveeSpotify Premium")
+                .replacingOccurrences(of: "premium", with: "EeveeSpotify Premium")
+        }
+        
+        return text
+    }
+}
 
 /*
 // Hook UILabel to modify premium-related text
