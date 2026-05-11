@@ -136,10 +136,10 @@ struct EeveeSettingsView: View {
             Section(footer: Text("reset_data_description".localized)) {
                 Button {
                     isClearingData = true
-                    
+
                     DispatchQueue.global(qos: .userInitiated).async {
                         OfflineHelper.resetData(clearCaches: true)
-                        
+
                         DispatchQueue.main.async {
                             exitApplication()
                         }
@@ -151,6 +151,24 @@ struct EeveeSettingsView: View {
                     else {
                         Text("reset_data".localized)
                     }
+                }
+            }
+
+            Section(footer: Text("Force re-login. Wipes Spotify keychain entries, sandbox dirs, and app-group containers. Other sideloaded apps untouched. App exits when done.")) {
+                Button {
+                    isClearingData = true
+                    DispatchQueue.global(qos: .userInitiated).async {
+                        FullResetHelper.wipeSpotifyState()
+                        DispatchQueue.main.async {
+                            exitApplication()
+                        }
+                    }
+                } label: {
+                    HStack {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                        Text("Full Reset")
+                    }
+                    .foregroundColor(.red)
                 }
             }
         }

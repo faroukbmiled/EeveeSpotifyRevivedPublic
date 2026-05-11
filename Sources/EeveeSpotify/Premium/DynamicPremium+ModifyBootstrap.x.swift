@@ -85,7 +85,7 @@ class SpotifySessionDelegateBootstrapHook: ClassHook<NSObject>, SpotifySessionDe
                 
                 if UserDefaults.patchType == .requests {
                     writeDebugLog("[BOOTSTRAP] Patching bootstrap UCS response")
-                    eeveeNoteBootstrapPremiumPatchApplied()
+                    UserDefaults.hasPatchedBootstrap = true
                     modifyRemoteConfiguration(&bootstrapMessage.ucsResponse)
                     
                     orig.URLSession(
@@ -102,11 +102,7 @@ class SpotifySessionDelegateBootstrapHook: ClassHook<NSObject>, SpotifySessionDe
                 orig.URLSession(session, task: task, didCompleteWithError: nil)
                 return
             }
-            catch let err {
-                writeDebugLog("[BOOTSTRAP] PROTO decode/patch FAILED — \(err) — forwarding original bootstrap bytes")
-                orig.URLSession(session, dataTask: task, didReceiveData: buffer)
-                orig.URLSession(session, task: task, didCompleteWithError: nil)
-                return
+            catch {
             }
         }
         

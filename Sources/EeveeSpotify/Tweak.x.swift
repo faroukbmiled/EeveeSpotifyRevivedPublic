@@ -38,28 +38,6 @@ let tweakInitTime: Date = {
     return now
 }()
 
-/// After a bootstrap UCS patch succeeds, call this once. Orion can reload `EeveeSpotify.dylib`
-/// within the same app process — Swift statics reset — but POSIX `setenv` survives for the
-/// whole process so `NSURLSessionTask` still blocks duplicate bootstrap fetches (see logs on 9.1.34).
-private let eeveeBootstrapPatchedEnv = "EEVEE_BOOTSTRAP_PATCHED"
-
-func eeveeNoteBootstrapPremiumPatchApplied() {
-    let pid = Int(getpid())
-    setenv(eeveeBootstrapPatchedEnv, "1", 1)
-    UserDefaults.eeveeBootstrapPatchPid = pid
-    UserDefaults.hasPatchedBootstrap = true
-}
-
-func eeveeShouldBlockDuplicateBootstrapRequest() -> Bool {
-    if let p = getenv(eeveeBootstrapPatchedEnv), String(cString: p) == "1" {
-        return true
-    }
-    let pid = Int(getpid())
-    return pid != 0
-        && UserDefaults.eeveeBootstrapPatchPid == pid
-        && UserDefaults.hasPatchedBootstrap
-}
-
 func exitApplication() {
     UIControl().sendAction(#selector(URLSessionTask.suspend), to: UIApplication.shared, for: nil)
     Timer.scheduledTimer(withTimeInterval: 0.2, repeats: false) { _ in
@@ -244,10 +222,15 @@ struct EeveeSpotify: Tweak {
     
     init() {
         eeveeBreadcrumb("Tweak init() entered")
-        // Do not reset `UserDefaults.hasPatchedBootstrap` here. Orion calls this `init()` again
-        // after internal session re-inits (9.1.34+); clearing it allowed an unpatched second bootstrap.
-        // Duplicate-bootstrap cancellation relies on `EEVEE_BOOTSTRAP_PATCHED` in the environment
-        // (`setenv` survives Orion dylib reload; the first bootstrap of a new OS process sees no flag).
+        // Reset per-launch bootstrap state; this MUST NOT persist across restarts.
+        // Otherwise Spotify can get stuck on splash because bootstrap is cancelled.
+        UserDefaults.hasPatchedBootstrap = false
+
+        // Local-only premium force. Activated FIRST and unconditionally, before
+        // any version gating or kill-switch. Independent of patchType / bootstrap
+        // patching / network interception. Keeps premium UI/state even if every
+        // other Eevee path is disabled.
+        activateEeveePremiumForce()
 
         // Global kill-switch for debugging “instant crash / no logs”.
         // If setting this makes Spotify launch, the crash is definitely in one of our hook activations.
@@ -260,9 +243,8 @@ struct EeveeSpotify: Tweak {
         // NOTE: On some Spotify 9.1.x builds, Orion can still crash even if a selector exists
         // (e.g., method type encoding changes). Be conservative for 9.1.x.
         if EeveeSpotify.hookTarget == .v91 {
-            // Minimal URLSession hooks + standalone productState coercion (bootstrap often misses reinits on 9.1.34+).
+            // Minimal protection only (safest hook)
             activateSessionLogoutProtection(minimal: true)
-            activatePremiumProductStateCoercionMinimal91IfEligible()
         } else {
             activateSessionLogoutProtection(minimal: false)
         }
@@ -304,7 +286,7 @@ struct EeveeSpotify: Tweak {
 
         // For 9.1.x, activate premium patching and lyrics
         if EeveeSpotify.hookTarget == .v91 {
-            
+
             // Premium patching (9.1.x)
             // Always activate the *bootstrap interceptor*; it is required for premium patching.
             if UserDefaults.patchType.isPatching {
@@ -319,9 +301,9 @@ struct EeveeSpotify: Tweak {
                     writeDebugLog("[INIT] Skipped PremiumUIHooksGroup (missing HUBViewModelBuilderImplementation/addJSONDictionary:)")
                 }
             }
-            
+
             let lyricsEnabled = UserDefaults.lyricsSource.isReplacingLyrics
-            
+
             // Lyrics hooks (guarded)
             if lyricsEnabled {
                 let fullscreenOK: Bool = {
@@ -353,7 +335,7 @@ struct EeveeSpotify: Tweak {
                 }
 
             }
-            
+
             // Settings integration (guarded)
             if let cls = NSClassFromString("ProfileSettingsSection"),
                class_getInstanceMethod(cls, Selector(("numberOfRows"))) != nil,
@@ -376,50 +358,11 @@ struct EeveeSpotify: Tweak {
             } else {
                 writeDebugLog("[INIT] Skipped settings integration (ProfileSettingsSection API mismatch)")
             }
-            // Also activate the banner for 9.1.x to ensure visibility if menu is missing
-            // V91SettingsIntegrationGroup().activate()
-            
             NSLog("[EeveeSpotify] Initialization complete for 9.1.x")
-            
-            // Show startup popup with status - DISABLED FOR PRODUCTION
-            // DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-            //     let lyricsStatus = lyricsEnabled ? "✅ ENABLED (\(UserDefaults.lyricsSource.rawValue))" : "❌ DISABLED"
-            //     let sourceName = UserDefaults.lyricsSource.description
-            //     let message = """
-            //     EeveeSpotify \(EeveeSpotify.version)
-            //     Spotify 9.1.x EXPERIMENTAL
-            //     
-            //     📝 Lyrics: \(lyricsStatus)
-            //     Source: \(sourceName)
-            //     
-            //     🔍 Tap 'Start' to capture network requests.
-            //     
-            //     After ~15 requests you'll see if 9.1.6 makes lyrics network calls.
-            //     
-            //     NOTE: If lyrics button is missing, try switching to Musixmatch or Genius in Settings.
-            //     """
-            //     
-            //     PopUpHelper.showPopUp(
-            //         message: message,
-            //         buttonText: "Start Debug",
-            //         secondButtonText: "Skip",
-            //         onPrimaryClick: {
-            //             // Start capturing URLs
-            //             DataLoaderServiceHooks_startCapturing()
-            //             
-            //             DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-            //                 PopUpHelper.showPopUp(
-            //                     message: "🔍 Capturing started!\n\nNow open ANY song and tap lyrics.\n\nWait ~15 seconds for results.",
-            //                     buttonText: "OK"
-            //                 )
-            //             }
-            //         }
-            //     )
-            // }
-            
+            activateEeveeProbes()
             return
         }
-        
+
         // For other versions, activate all features normally
         if UserDefaults.experimentsOptions.showInstagramDestination {
             InstgramDestinationGroup().activate()

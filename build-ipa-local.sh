@@ -1,90 +1,85 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+# Local IPA build — mirror of .github/workflows/main.yml. Produces an IPA
+# you can sign with Sideloadly/AltStore/TrollStore.
+#
+# Pipeline:
+#   1. Build EeveeSwiftProtobuf.framework from apple/swift-protobuf source
+#      (renamed module — see Tools/SwiftProtobufBuild/).
+#   2. theos `make package FINALPACKAGE=1` — produces .deb with
+#      EeveeSpotify.dylib + EeveeSpotify.bundle + framework.
+#   3. Build zxPluginsInject.dylib — sideload compat shim (keychain redirect,
+#      group containers, CloudKit stub). LC-injected via ipapatch in step 6.
+#   4. cyan inject deb-contents (dylib + framework + bundle) into vanilla IPA.
+#   5. ipapatch LC-inject zxPluginsInject into main exec + every appex.
+#   6. Strip Watch.app if it survived cyan -du.
+#
+# Requires: theos, cyan (pyzule-rw), ipapatch, dpkg, ldid, plutil.
 
-# Local IPA build script for EeveeSpotify
-# This script matches the GitHub Actions workflow but runs locally
+set -euo pipefail
 
-SPOTIFY_IPA="${1:-Decrryted IPA/com.spotify.client-9.1.28-Decrypted.ipa}"
-VERSION="6.6.2"
-OUTPUT_DIR="Outputs/IPAS"
+VANILLA_IPA="${1:-}"
+[ -n "$VANILLA_IPA" ] && [ -f "$VANILLA_IPA" ] || {
+    echo "usage: $0 <path/to/Spotify-vanilla.ipa>" >&2
+    exit 1
+}
 
-# Determine package scheme (rootful=arm, rootless=arm64)
-PACKAGE_SCHEME="${THEOS_PACKAGE_SCHEME:-rootful}"
-if [ "$PACKAGE_SCHEME" = "rootless" ]; then
-  ARCH="arm64"
-else
-  ARCH="arm"
-fi
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$REPO_DIR"
 
-# Extract Spotify version from filename
-SPOTIFY_VERSION=$(basename "$SPOTIFY_IPA" | sed -E 's/.*-([0-9.]+)-Decrypted.ipa/\1/' | sed -E 's/.*client_([0-9.]+)_und3fined.ipa/\1/')
+[ -n "${THEOS:-}" ] || { [ -d "$HOME/theos" ] && export THEOS="$HOME/theos" || { echo "THEOS not set"; exit 1; }; }
 
-# Output filenames
-BASE_IPA="$OUTPUT_DIR/EeveeSpotify-$VERSION-$SPOTIFY_VERSION.ipa"
-PATCHED_IPA="$OUTPUT_DIR/EeveeSpotify-$VERSION-$SPOTIFY_VERSION-patched.ipa"
+VERSION=$(grep -E '^Version:' control | awk '{print $2}')
+SPOT_VERSION=$(unzip -p "$VANILLA_IPA" 'Payload/Spotify.app/Info.plist' \
+    | plutil -extract CFBundleShortVersionString raw - 2>/dev/null || echo "unknown")
+OUT_DIR="Outputs/IPAS"
+OUT_IPA="$OUT_DIR/EeveeSpotify-${VERSION}-${SPOT_VERSION}.ipa"
+mkdir -p "$OUT_DIR"
 
-echo "======================================"
-echo "Building EeveeSpotify IPA"
-echo "======================================"
-echo "Spotify version: $SPOTIFY_VERSION"
-echo "EeveeSpotify version: $VERSION"
-echo "Input: $SPOTIFY_IPA"
-echo "======================================"
+color() { printf '\033[1;32m==> %s\033[0m\n' "$*"; }
 
-# Find the .deb package
-DEB_FILE=$(ls -1t packages/com.eevee.spotify_${VERSION}*_iphoneos-${ARCH}*.deb 2>/dev/null | head -1)
-if [ -z "$DEB_FILE" ]; then
-  echo "ERROR: No matching .deb found in packages/ for version $VERSION arch $ARCH"
-  exit 1
-fi
-echo "DEB: $DEB_FILE"
+color "1/6  EeveeSwiftProtobuf.framework"
+chmod +x Tools/SwiftProtobufBuild/build-eeveeswiftprotobuf.sh
+Tools/SwiftProtobufBuild/build-eeveeswiftprotobuf.sh
 
-# Ensure output directory exists
-mkdir -p "$OUTPUT_DIR"
+color "2/6  theos make package"
+THEOS_PACKAGE_SCHEME=rootless make package FINALPACKAGE=1
+DEB_FILE=$(ls -t packages/com.eevee.spotify_*.deb 2>/dev/null | head -1)
+[ -n "$DEB_FILE" ] || { echo "deb not produced"; exit 1; }
 
-# Step 1: Inject tweak with ivinject
-echo "Step 1/4: Injecting tweak with ivinject..."
-echo "Using package scheme: $PACKAGE_SCHEME ($ARCH)"
-ivinject-arm64 \
-  "$SPOTIFY_IPA" \
-  "$BASE_IPA" \
-  --overwrite \
-  -i "$DEB_FILE" \
-     "${THEOS}/lib/iphone/rootless/SwiftProtobuf.framework" \
-     "/tmp/ees-ipa/OpenSpotifySafariExtension/OpenSpotifySafariExtension.appex" \
-  -s - -d --level Optimal \
-  -r Watch
+color "3/6  zxPluginsInject.dylib"
+chmod +x Tools/build-zxpi.sh
+Tools/build-zxpi.sh >/dev/null
 
-echo ""
-echo "Step 2/4: Copying base IPA to patched output..."
-cp "$BASE_IPA" "$PATCHED_IPA"
+color "4/6  extract deb"
+DEB_EXTRACT="$REPO_DIR/Outputs/deb-extract"
+rm -rf "$DEB_EXTRACT"; mkdir -p "$DEB_EXTRACT"
+dpkg-deb -R "$DEB_FILE" "$DEB_EXTRACT"
+DYLIB_SRC=$(find "$DEB_EXTRACT" -name 'EeveeSpotify.dylib' | head -1)
+BUNDLE_SRC=$(find "$DEB_EXTRACT" -type d -name 'EeveeSpotify.bundle' | head -1)
+FRAMEWORK_SRC=$(find "$DEB_EXTRACT" -type d -name 'EeveeSwiftProtobuf.framework' | head -1)
+[ -n "$DYLIB_SRC" ] || { echo "dylib not in deb"; exit 1; }
 
-echo ""
-echo "Step 3/4: Stripping Watch bundle (if any remains)..."
-cd "$OUTPUT_DIR"
+color "5/6  cyan inject"
+INJECT=("$DYLIB_SRC")
+[ -n "$FRAMEWORK_SRC" ] && INJECT+=("$FRAMEWORK_SRC")
+[ -n "$BUNDLE_SRC" ]    && INJECT+=("$BUNDLE_SRC")
+rm -f "$OUT_IPA"
+cyan -i "$VANILLA_IPA" -o "$OUT_IPA" -f "${INJECT[@]}" -c 9 -m 15.0 -du
+
+color "6/6  ipapatch LC-inject zxPluginsInject"
+ipapatch --input "$OUT_IPA" --inplace --noconfirm --dylib packages/zxPluginsInject.dylib
+
+# Belt-and-suspenders: cyan -du strips appex/Watch but verify.
+cd "$OUT_DIR"
 rm -rf Payload
-unzip -q "$(basename "$PATCHED_IPA")"
+unzip -q "$(basename "$OUT_IPA")"
 if [ -d "Payload/Spotify.app/Watch" ]; then
-  echo "  Removing Payload/Spotify.app/Watch"
-  rm -rf Payload/Spotify.app/Watch
-  # Repackage over the patched IPA
-  zip -qry "$(basename "$PATCHED_IPA")" Payload
-else
-  echo "  Watch bundle already removed"
+    rm -rf Payload/Spotify.app/Watch
+    zip -qry "$(basename "$OUT_IPA")" Payload
 fi
 rm -rf Payload
-cd - > /dev/null
+cd - >/dev/null
 
-echo ""
-echo "Step 4/4: Cleanup intermediate files..."
-# Keep both base and patched IPAs (no intermediate cleanup needed)
-
-echo ""
-echo "======================================"
-echo "✅ Build complete!"
-echo "======================================"
-echo "Base IPA:    $BASE_IPA"
-echo "Patched IPA: $PATCHED_IPA"
-ls -lh "$BASE_IPA" "$PATCHED_IPA"
-echo ""
-echo "Install with AltStore/Sideloadly or TrollStore"
+color "Done"
+ls -lh "$OUT_IPA"
+echo "Sign with Sideloadly / AltStore / TrollStore."

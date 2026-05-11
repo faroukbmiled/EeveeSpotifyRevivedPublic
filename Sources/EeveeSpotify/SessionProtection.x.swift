@@ -1,6 +1,5 @@
 import Orion
 import Foundation
-import ObjectiveC
 
 // MARK: - Session Logout Protection
 // Hooks all logout-related methods to prevent Spotify from logging out
@@ -84,9 +83,8 @@ class SPTAuthSessionHook: ClassHook<NSObject> {
 
     func productStateUpdated(_ state: AnyObject) {
         let elapsed = Int(Date().timeIntervalSince(tweakInitTime))
-        let (coerced, didCoerce) = eeveePremiumCoercedProductStateIfNeeded(for: state)
-        writeDebugLog("[AUTH] productStateUpdated at \(elapsed)s didCoerce=\(didCoerce)")
-        orig.productStateUpdated(coerced)
+        writeDebugLog("[AUTH] productStateUpdated at \(elapsed)s -- \(state)")
+        orig.productStateUpdated(state)
     }
 
     func tryReconnect(_ arg1: AnyObject, toAP arg2: AnyObject) {
@@ -215,14 +213,16 @@ class OauthAccessTokenBridgeHook: ClassHook<NSObject> {
 
     // orion:new
     func startExpiryExtender() {
-        let oauthBridgeTarget = target
+        let weak = target
+        // Extend the ivar every 60 seconds
         DispatchQueue.global(qos: .utility).async {
             while true {
                 Thread.sleep(forTimeInterval: 60)
-                let cls: AnyClass = type(of: oauthBridgeTarget)
+                guard let obj = weak as? NSObject else { break }
+                let cls: AnyClass = type(of: obj)
                 if let ivar = class_getInstanceVariable(cls, "expiresAt") {
                     let farFuture = Date(timeIntervalSinceNow: 365 * 24 * 60 * 60)
-                    object_setIvar(oauthBridgeTarget, ivar, farFuture)
+                    object_setIvar(obj, ivar, farFuture)
                 }
             }
         }
@@ -330,6 +330,11 @@ class URLSessionTaskResumeHook: ClassHook<NSObject> {
     typealias Group = SessionLogoutNetworkHookGroup
     static let targetName = "NSURLSessionTask"
 
+    // Flip to true to dump the URLSession-delegate class for every
+    // premium-relevant URL — needed only when investigating a route that
+    // bypasses both currently-hooked delegates.
+    static let enableNetDelegateProbe = false
+
     func resume() {
         if let task = target as? URLSessionTask,
            let url = task.currentRequest?.url ?? task.originalRequest?.url,
@@ -339,16 +344,39 @@ class URLSessionTaskResumeHook: ClassHook<NSObject> {
             let elapsedInt = Int(elapsed)
             let path = url.path
 
-            // If we've already patched bootstrap once in this OS process, block any subsequent
-            // bootstrap calls. Some 9.1.34+ builds fire a second bootstrap during an internal
-            // session re-init. That response can be unpatched free-tier UCS and overwrite premium.
-            // Rely on `setenv`: Orion may reload the dylib — Swift static gates reset — but env
-            // persists for the lifetime of the process (matches debug logs showing no cancellation
-            // when only static/UserDefaults guards were active after reinjection).
-            if path.contains("bootstrap/v1/bootstrap"), eeveeShouldBlockDuplicateBootstrapRequest() {
-                writeDebugLog("[NET] Cancelled bootstrap re-fetch (patched-this-process gate) at \(elapsedInt)s")
-                task.cancel()
-                return
+            // DISABLED: previously cancelled subsequent bootstraps to defend against
+            // session re-init wiping premium state. Broke fresh-login flow on 9.1.34
+            // (first bootstrap is anonymous signup-screen, second is post-login user state).
+            // Let all bootstraps through; modifyRemoteConfiguration is idempotent.
+            // Diagnostic probe (off by default). Logs the URLSession-delegate
+            // class for any premium-relevant URL — used to discover which
+            // delegate Spotify uses for a given route. We currently hook
+            // SPTDataLoaderService and HttpClientURLSession; if a future
+            // build/region adds a third delegate, flip this on to find its
+            // class name.
+            if URLSessionTaskResumeHook.enableNetDelegateProbe {
+                let isPremiumRelevantURL =
+                    path.contains("bootstrap/v1/bootstrap") ||
+                    path.contains("pam-view-service") ||
+                    path.contains("GetYourPremiumBadge") ||
+                    path.contains("GetPlanOverview") ||
+                    path.contains("GetPremiumPlanRow") ||
+                    path.contains("v1/customize")
+
+                if isPremiumRelevantURL {
+                    let sessionDelegate: String = {
+                        if let s = task.value(forKey: "session") as? URLSession, let d = s.delegate {
+                            return NSStringFromClass(type(of: d as AnyObject))
+                        }
+                        return "<no-session-delegate>"
+                    }()
+                    let tag = path.contains("bootstrap/v1/bootstrap") ? "Bootstrap" :
+                              (path.contains("GetYourPremiumBadge")  ? "PAM.Badge"  :
+                              (path.contains("GetPlanOverview")      ? "PAM.PlanOverview" :
+                              (path.contains("GetPremiumPlanRow")    ? "PAM.PlanRow" :
+                              (path.contains("pam-view-service")     ? "PAM.Other" : "Customize"))))
+                    writeDebugLog("[NET][\(tag)] host=\(host) path=\(path) at \(elapsedInt)s sessDelegate=\(sessionDelegate)")
+                }
             }
 
             // Log auth-related requests for diagnostics
@@ -395,11 +423,8 @@ class URLSessionTaskResumeHook: ClassHook<NSObject> {
                     task.cancel()
                     return
                 }
-                if elapsed > 30 && path.contains("bootstrap/v1/bootstrap") {
-                    writeDebugLog("[NET] Cancelled bootstrap re-fetch at \(elapsedInt)s")
-                    task.cancel()
-                    return
-                }
+                // (Bootstrap is logged by the premium-relevant probe above —
+                // dropped duplicate "(late)" log to keep output clean.)
                 // Block periodic re-fetches of the customize endpoint.
                 // Spotify's RemoteConfigurationSDK AuthFetcher re-fetches the customize
                 // endpoint after minimumFetchIntervalSeconds (typically a few hours).
@@ -422,32 +447,4 @@ class URLSessionTaskResumeHook: ClassHook<NSObject> {
     }
 }
 
-// MARK: - Minimal 9.1.x — productState coercion (separate Orion group from full auth hooks)
 
-struct SessionPremiumProductStateOnlyHookGroup: HookGroup { }
-
-class SPTAuthSessionPremiumProductOnlyHook: ClassHook<NSObject> {
-    typealias Group = SessionPremiumProductStateOnlyHookGroup
-    static let targetName = "SPTAuthSessionImplementation"
-
-    func productStateUpdated(_ state: AnyObject) {
-        let elapsed = Int(Date().timeIntervalSince(tweakInitTime))
-        let (coerced, didCoerce) = eeveePremiumCoercedProductStateIfNeeded(for: state)
-        writeDebugLog("[AUTH] productStateUpdated at \(elapsed)s didCoerce=\(didCoerce)")
-        orig.productStateUpdated(coerced)
-    }
-}
-
-func activatePremiumProductStateCoercionMinimal91IfEligible() {
-    guard let cls = NSClassFromString("SPTAuthSessionImplementation") else {
-        NSLog("[EeveeSpotify] Skipped productState hook (no SPTAuthSessionImplementation)")
-        return
-    }
-    let sel = NSSelectorFromString("productStateUpdated:")
-    guard class_getInstanceMethod(cls, sel) != nil else {
-        NSLog("[EeveeSpotify] Skipped productState hook (missing productStateUpdated:)")
-        return
-    }
-    SessionPremiumProductStateOnlyHookGroup().activate()
-    NSLog("[EeveeSpotify] Activated minimal productState premium coercion hook")
-}
