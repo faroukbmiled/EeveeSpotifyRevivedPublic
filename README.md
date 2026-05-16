@@ -1,7 +1,9 @@
+> [!WARNING]
+> # Development has moved to this [EeveeSpotifyReincarnated](https://github.com/jaydenjcpy/EeveeSpotifyReincarnated)
+
 ![Banner](Images/banner.png?)
 
-# EeveeSpotify
-
+## EeveeSpotify
 **Updated and maintained by Skye & jaydenjcpy  - Current Version 9.1.40 (9.1.32 is the most stanle rn)**
 
 **Last updated 4/22/26**
