@@ -1,5 +1,5 @@
 > [!WARNING]
-> # Development has moved to this [EeveeSpotifyReincarnated](https://github.com/jaydenjcpy/EeveeSpotifyReincarnated)
+> # Development has moved to [EeveeSpotifyReincarnated](https://github.com/jaydenjcpy/EeveeSpotifyReincarnated)
 
 ![Banner](Images/banner.png?)
 
